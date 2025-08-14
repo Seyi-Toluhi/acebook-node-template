@@ -42,14 +42,12 @@ jobs:
       - name: Install deps
         run: npm ci
 
-      # Run unit tests (DB available at localhost)
       - name: Run unit tests
         env:
           MONGO_URL: mongodb://127.0.0.1:27017/acebook_test
         run: npm run test:unit
 
-      # Start server on port 3030 and wait, then run Cypress integration tests
-      - name: Cypress run (starts server & waits)
+      - name: Start test server and run Cypress integration tests
         uses: cypress-io/github-action@v6
         with:
           install: false
@@ -70,8 +68,9 @@ jobs:
           zip -r "${PACKAGE_NAME}" \
             appspec.yml \
             scripts/ \
+            app.js \
+            controllers/ models/ routes/ views/ public/ \
             package.json package-lock.json \
-            dist/ public/ src/ \
             -x "node_modules/*" ".git/*" ".github/*" "*.log"
 
       - name: Upload artifact for next job
@@ -96,7 +95,6 @@ jobs:
           aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: ${{ env.AWS_REGION }}
-
 
       - name: Upload to S3
         run: |
