@@ -1,0 +1,91 @@
+name: Deploy Project
+
+on:
+  push:
+    branches: [ "main" ]   # change if your default branch is different
+  workflow_dispatch:       # allow manual runs
+
+env:
+  NODE_VERSION: "20"                 # Node version to run
+  AWS_REGION: "eu-west-2"            # <-- change to your region
+  S3_BUCKET: "seyi-codedeploy-artifacts" # <-- change to your S3 bucket for bundles
+  S3_KEY_PREFIX: "releases"          # optional folder prefix in the bucket
+  CODEDEPLOY_APP: "my-node-app"         # <-- CodeDeploy Application name
+  CODEDEPLOY_GROUP: "seyi-dg"  # <-- Deployment Group name
+  PACKAGE_NAME: "release-${{ github.sha }}.zip"
+
+jobs:
+  test:
+    name: Test & Build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Use Node ${{ env.NODE_VERSION }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: "npm"
+
+      - name: Install deps
+        run: npm ci
+
+      - name: Run tests
+        run: npm test --if-present
+
+      - name: Build (production)
+        run: |
+          # If your app has a build step; safe to keep even if not present
+          npm run build --if-present
+          # prune dev deps to shrink bundle for server
+          npm ci --omit=dev
+
+      - name: Package for deployment
+        run: |
+          mkdir -p bundle
+          # Include everything your server needs at runtime:
+          # - built files (e.g. dist/), package*.json, app source, PM2 or systemd files, etc.
+          # - appspec.yml and scripts/ are REQUIRED for CodeDeploy on EC2
+          zip -r "${PACKAGE_NAME}" \
+            appspec.yml \
+            scripts/ \
+            package.json package-lock.json \
+            dist/ public/ src/ \
+            -x "node_modules/*" ".git/*" ".github/*" "*.log"
+
+      - name: Upload artifact for next job
+        uses: actions/upload-artifact@v4
+        with:
+          name: codedeploy-bundle
+          path: ${{ env.PACKAGE_NAME }}
+
+  deploy:
+    name: Deploy to EC2 (CodeDeploy)
+    runs-on: ubuntu-latest
+    needs: test
+    steps:
+      - name: Download bundle
+        uses: actions/download-artifact@v4
+        with:
+          name: codedeploy-bundle
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Upload to S3
+        run: |
+          aws s3 cp "${{ env.PACKAGE_NAME }}" \
+            "s3://${{ env.S3_BUCKET }}/${{ env.S3_KEY_PREFIX }}/${{ env.PACKAGE_NAME }}"
+
+      - name: Create CodeDeploy deployment
+        run: |
+          aws deploy create-deployment \
+            --application-name "${{ env.CODEDEPLOY_APP }}" \
+            --deployment-group-name "${{ env.CODEDEPLOY_GROUP }}" \
+            --deployment-config-name CodeDeployDefault.AllAtOnce \
+            --s3-location bucket=${{ env.S3_BUCKET }},bundleType=zip,key=${{ env.S3_KEY_PREFIX }}/${{ env.PACKAGE_NAME }}

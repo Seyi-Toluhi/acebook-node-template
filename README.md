@@ -22,7 +22,7 @@ REPLACE THIS TEXT WITH A LINK TO YOUR CARD WALL
 
 1. Install Node Version Manager (NVM)
    ```
-   brew install nvm
+   `brew install nvm`
    ```
    Then follow the instructions to update your `~/.bash_profile`.
 2. Open a new terminal
