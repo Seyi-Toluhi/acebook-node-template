@@ -2,7 +2,10 @@
 # set -e
 # mkdir -p /srv/app
 #!/bin/bash
+# Set permissions
 set -e
+sudo chown -R ec2-user:ec2-user /srv/app
+sudo chmod 755 /srv/app/scripts/*.sh
 
 # Update system packages
 yum update -y
