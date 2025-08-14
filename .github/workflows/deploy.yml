@@ -2,31 +2,33 @@ name: Deploy Project
 
 on:
   push:
-    branches: [ "main" ]   # change if your default branch is different
-  workflow_dispatch:       # allow manual runs
+    branches: [ "main" ]
+  workflow_dispatch:
 
 env:
-  NODE_VERSION: "20"                 # Node version to run
-  AWS_REGION: "eu-west-2"            # <-- change to your region
-  S3_BUCKET: "seyi-codedeploy-artifacts" # <-- change to your S3 bucket for bundles
-  S3_KEY_PREFIX: "releases"          # optional folder prefix in the bucket
-  CODEDEPLOY_APP: "my-node-app"         # <-- CodeDeploy Application name
-  CODEDEPLOY_GROUP: "seyi-dg"  # <-- Deployment Group name
+  NODE_VERSION: "20"
+  AWS_REGION: "eu-west-2"
+  S3_BUCKET: "seyi-codedeploy-artifacts"
+  S3_KEY_PREFIX: "releases"
+  CODEDEPLOY_APP: "my-node-app"
+  CODEDEPLOY_GROUP: "seyi-dg"
   PACKAGE_NAME: "release-${{ github.sha }}.zip"
 
 jobs:
   test:
     name: Test & Build
     runs-on: ubuntu-latest
+
     services:
       mongo:
         image: mongo:6
         ports: ['27017:27017']
         options: >-
-          --health-cmd="mongosh --eval 'db.runCommand({ ping: 1 })'"
+          --health-cmd="mongosh --quiet --eval 'db.runCommand({ ping: 1 })'"
           --health-interval=10s
           --health-timeout=5s
           --health-retries=5
+
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -40,22 +42,31 @@ jobs:
       - name: Install deps
         run: npm ci
 
-      - name: Run tests
-        run: npm test --if-present
+      # Run unit tests (DB available at localhost)
+      - name: Run unit tests
+        env:
+          MONGO_URL: mongodb://127.0.0.1:27017/acebook_test
+        run: npm run test:unit
+
+      # Start server on port 3030 and wait, then run Cypress integration tests
+      - name: Cypress run (starts server & waits)
+        uses: cypress-io/github-action@v6
+        with:
+          install: false
+          start: npm run start:test
+          wait-on: 'http://localhost:3030'
+        env:
+          MONGO_URL: mongodb://127.0.0.1:27017/acebook_test
+          CYPRESS_baseUrl: http://localhost:3030
 
       - name: Build (production)
         run: |
-          # If your app has a build step; safe to keep even if not present
           npm run build --if-present
-          # prune dev deps to shrink bundle for server
           npm ci --omit=dev
 
       - name: Package for deployment
         run: |
           mkdir -p bundle
-          # Include everything your server needs at runtime:
-          # - built files (e.g. dist/), package*.json, app source, PM2 or systemd files, etc.
-          # - appspec.yml and scripts/ are REQUIRED for CodeDeploy on EC2
           zip -r "${PACKAGE_NAME}" \
             appspec.yml \
             scripts/ \
