@@ -5,4 +5,4 @@ set -e
 sudo pkill -f "node" || true
 
 # Start the application
-npm start >/dev/null 2>&1 &
+npm start >/dev/null 2>&1 &``
